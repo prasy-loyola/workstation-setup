@@ -1,0 +1,11 @@
+- hosts: localhost
+  name: Uninstall softwares
+  become: true
+  vars:
+    ansible_become_pass: REDACTED
+  tasks:
+    - name: APK Uninstalls
+      apk:
+        state: absent # not required. choices: present;absent;latest. Indicates the desired package(s) state.,C(present) ensures the package(s) is/are present.,C(absent) ensures the package(s) is/are absent.,C(latest) ensures the package(s) is/are present and the latest version(s).
+        update_cache: yes # not required. Update repository indexes. Can be run with other steps or on it's own.
+        name: ["bash", "git", "mysql", "mysql-client"] # not required. A package name, like C(foo), or multiple packages, like C(foo, bar).

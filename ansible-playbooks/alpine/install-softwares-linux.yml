@@ -1,0 +1,29 @@
+- hosts: localhost
+  name: Install softwares
+  become: true
+  vars:
+    ansible_become_pass: REDACTED
+  tasks:
+    - name: APK Installs
+      apk:
+        state: present # not required. choices: present;absent;latest. Indicates the desired package(s) state.,C(present) ensures the package(s) is/are present.,C(absent) ensures the package(s) is/are absent.,C(latest) ensures the package(s) is/are present and the latest version(s).
+        update_cache: yes # not required. Update repository indexes. Can be run with other steps or on it's own.
+        name: ["bash", "git", "openrc"] # not required. A package name, like C(foo), or multiple packages, like C(foo, bar).
+
+- hosts: localhost
+  name: Setup up softwares
+  vars:
+    ansible_become_pass: REDACTED
+  tasks:
+    - name: Setup git username
+      git_config:
+        state: present
+        scope: global #
+        name: user.name # not required. The name of the setting. If no value is supplied, the value will be read from the config if it has been set.
+        value: Prasanna Selvaraj # not required. When specifying the name of a single setting, supply a value to set that setting to the given value.
+    - name: Setup git config email
+      git_config:
+        state: present
+        scope: global # not required. choices: local;global;system. Specify which scope to read/set values from. This is required when setting config values. If this is set to local, you must also specify the repo parameter. It defaults to system only when not using I(list_all)=yes.
+        name: user.email # not required. The name of the setting. If no value is supplied, the value will be read from the config if it has been set.
+        value: prasy.loyola@gmail.com # not required. When specifying the name of a single setting, supply a value to set that setting to the given value.
