@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: orion-pv-volume
+  labels:
+    type: local
+    group: orion-server
+spec:
+  storageClassName: manual
+
+  capacity:
+    storage: 3Gi
+  accessModes:
+    - ReadWriteOnce
+
+  hostPath:
+    path: "/host/.kube/persistent-volume/orion-content"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: orion-pv-claim
+  labels:
+    type: local
+    group: orion-server
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 3Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orion-server
+  labels:
+    group: orion-server
+spec:
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: orion-server
+  template:
+    metadata:
+      labels:
+        app: orion-server
+        group: orion-server
+    spec:
+      volumes:
+        - name: orion-pv-storage
+          persistentVolumeClaim:
+            claimName: orion-pv-claim
+      containers:
+        - name: orion-server
+          image: prasyloyola/eclipse-orion:latest
+          resources:
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - mountPath: "/opt/eclipse/serverworkspace"
+              name: orion-pv-storage
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orion-server-service
+  labels:
+    type: local
+    group: orion-server
+spec:
+  selector:
+    app: orion-server
+  ports:
+    - port: 8080
+      targetPort: 8080
+
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: orion-ingress
+  labels:
+    group: orion-server
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+    - host: orion.local.io
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: orion-server-service
+              servicePort: 8080

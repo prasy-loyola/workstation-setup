@@ -1,0 +1,263 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: filebeat
+  namespace: kube-system
+  labels:
+    k8s-app: filebeat
+    group: elk
+rules:
+  - apiGroups: [""] # "" indicates the core API group
+    resources:
+      - namespaces
+      - pods
+    verbs:
+      - get
+      - watch
+      - list
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: filebeat
+  namespace: kube-system
+  labels:
+    group: elk
+subjects:
+  - kind: ServiceAccount
+    name: filebeat
+    namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: filebeat
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: filebeat
+  namespace: kube-system
+  labels:
+    k8s-app: filebeat
+    group: elk
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-prospectors
+  namespace: kube-system
+  labels:
+    k8s-app: filebeat
+    kubernetes.io/cluster-service: "true"
+    group: elk
+data:
+  kubernetes.yml: |-
+    - type: container
+      enabled: false
+      containers.ids:
+        - "*"
+      processors:
+        - add_kubernetes_metadata:
+            in_cluster: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: kube-system
+  labels:
+    k8s-app: filebeat
+    kubernetes.io/cluster-service: "true"
+    group: elk
+data:
+  filebeat.yml: |-
+    filebeat.inputs:
+      - type: container
+        enabled: true
+          # Paths for container logs that should be crawled and fetched.
+        paths:
+          - /var/lib/docker/containers/*/*-json.log
+            # Configure stream to filter to a specific stream: stdout, stderr or all (default)
+        stream: all
+        ids: 
+          #- '^(?!kibana).*$'
+          - '*'
+        json.keys_under_root: true
+        json.ignore_decoding_error: true
+        json.add_error_key: false
+        json.message_key: log
+      
+      - type: container
+        enabled: false
+          # Paths for container logs that should be crawled and fetched.
+        paths:
+          - /var/lib/docker/containers/*/\w+.log
+            # Configure stream to filter to a specific stream: stdout, stderr or all (default)
+        stream: all
+        ids: 
+          #- '^(?!kibana).*$'
+          - '*'
+
+      - type: docker
+        enabled: false
+        containers.paths: 
+          - /var/lib/docker/containers/*.log
+        #containers.ids: '*'
+
+      - type: log
+        enabled: false
+        paths:
+          - /var/lib/host/*.log
+         # - /var/lib/docker/containers/logstash-deployment-647b96b8bc-b7kvr_elk_logstash-0d076b3bf4bae3df3f2f37d62142ab1c592eac027565c8b9ca37a1bdf3228ca2.log
+    filebeat.config:
+      modules:
+        path: ${path.config}/modules.d/*.yml
+        # Reload module configs as they change:
+        reload.enabled: true
+    filebeat.autodiscover:
+      providers:
+        - type: kubernetes
+          enabled: false
+          templates:
+            - condition:
+                not:
+                  equals:
+                    kubernetes.namespace: elk
+              config:
+                - type: container
+                  fields_under_root: true
+                  paths:
+                    - /var/lib/docker/containers/*/*-json.log
+                  json.keys_under_root: true
+                  json.ignore_decoding_error: true
+                  json.add_error_key: false
+                  json.message_key: log
+
+    processors:
+      #- add_host_metadata: ~
+      #- add_cloud_metadata: ~
+      #- add_docker_metadata: ~
+      - add_kubernetes_metadata:
+        - kubernetes.pod
+      - drop_event:
+          when:
+            or:
+              - and:
+                  - equals:
+                      kubernetes.container.name : kibana-logging
+                  - has_fields:
+                      - req	
+              - and:
+                  - equals:
+                      "kubernetes.labels.app_kubernetes_io/name" : 	ingress-nginx
+                      stream: stdout 
+    #cloud.id: ${ELASTIC_CLOUD_ID}
+    #cloud.auth: ${ELASTIC_CLOUD_AUTH}
+    logging.level: info
+    output.logstash:
+      hosts: ["logstash-service:5044"]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: filebeat
+  namespace: kube-system
+  labels:
+    k8s-app: filebeat
+    kubernetes.io/cluster-service: "true"
+    group: elk
+spec:
+  selector:
+    matchLabels:
+      k8s-app: filebeat
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        k8s-app: filebeat
+        kubernetes.io/cluster-service: "true"
+        group: elk
+    spec:
+      serviceAccountName: filebeat
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: filebeat
+          image: docker.elastic.co/beats/filebeat:7.6.2
+          args:
+            - "-c"
+            - "/usr/share/filebeat/filebeat.yml"
+            # - "-e"
+            # - "-d"
+            # - "publish,logstash"
+
+          # "-d",
+          # '"publish,logstash"',
+          env:
+            - name: ELASTICSEARCH_HOST
+              value: elasticsearch
+            - name: ELASTICSEARCH_PORT
+              value: "9200"
+            #- name: ELASTICSEARCH_USERNAME
+            #  value: elastic
+            #- name: ELASTICSEARCH_PASSWORD
+            #  value: changeme
+            #- name: ELASTIC_CLOUD_ID
+            #  value:
+            #- name: ELASTIC_CLOUD_AUTH
+            #  value:
+          securityContext:
+            runAsUser: 0
+          resources:
+            limits:
+              memory: 200Mi
+              cpu: 200m
+            requests:
+              cpu: 100m
+              memory: 100Mi
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/filebeat/filebeat.yml
+              readOnly: true
+              subPath: filebeat.yml
+            - name: prospectors
+              mountPath: /usr/share/filebeat/prospectors.d
+              readOnly: true
+            - name: data
+              mountPath: /usr/share/filebeat/data/
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers/
+              readOnly: true
+            - name: varlibpod
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: hosthomevarlogs
+              mountPath: /var/lib/host
+              readOnly: true
+
+      volumes:
+        - name: config
+          configMap:
+            defaultMode: 0600
+            name: filebeat-config
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers/
+        - name: varlibpod
+          hostPath:
+            path: /var/log/pods
+        - name: hosthomevarlogs
+          hostPath:
+            path: /hosthome/var/logs
+        - name: prospectors
+          configMap:
+            defaultMode: 0600
+            name: filebeat-prospectors
+        - name: data
+          emptyDir: {}
+
+---
+

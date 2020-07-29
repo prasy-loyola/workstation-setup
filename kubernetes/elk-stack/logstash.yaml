@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-configmap
+  namespace: kube-system
+  labels:
+    group: elk
+data:
+  logstash.yml: |-
+    http.host: "0.0.0.0"
+    path.config: /usr/share/logstash/pipeline
+  logstash.conf: |-
+    # all input will come from filebeat, no local logs
+    input {
+      beats {
+        port => 5044
+      }
+    }
+    # filter {
+    #   grok {
+    #     match => { "message" => "%{TIMESTAMP_ISO8601:timestamp} %{LOGLEVEL:loglevel} %{WORD:java.className}:%{NUMBER:line} - %{GREEDYDATA:message_txt}" }
+    #     match => { "message" => "%{TIMESTAMP_ISO8601:timestamp} \[%{NOTSPACE:java.thread.name}\] %{LOGLEVEL:loglevel} %{NOTSPACE:java.className} - %{GREEDYDATA:message_txt}" }
+    #   }
+    #     
+    #   date {
+    #     match => [ "timestamp" , "yyyy-MM-dd HH:mm:ss.SSS" ]
+    #   }
+    #   mutate {
+    #     remove_field => ["message", "host", "agent", "log" , "ecs" ,"tags"]
+    #   }
+    # }
+    output {
+        elasticsearch {
+            hosts => [ "elasticsearch:9200" ]
+        }
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash-deployment
+  namespace: kube-system
+  labels:
+    group: elk
+spec:
+  selector:
+    matchLabels:
+      app: logstash
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: logstash
+        group: elk
+    spec:
+      containers:
+        - name: logstash
+          image: docker.elastic.co/logstash/logstash:7.6.2
+          # args:
+          ports:
+            - containerPort: 5044
+          volumeMounts:
+            - name: config-volume
+              mountPath: /usr/share/logstash/config
+            - name: logstash-pipeline-volume
+              mountPath: /usr/share/logstash/pipeline
+          resources:
+            limits:
+              cpu: 200m
+              memory: 2Gi
+      volumes:
+        - name: config-volume
+          configMap:
+            name: logstash-configmap
+            items:
+              - key: logstash.yml
+                path: logstash.yml
+        - name: logstash-pipeline-volume
+          configMap:
+            name: logstash-configmap
+            items:
+              - key: logstash.conf
+                path: logstash.conf
+
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: logstash-service
+  namespace: kube-system
+  labels:
+    group: elk
+spec:
+  selector:
+    app: logstash
+  ports:
+    - protocol: TCP
+      port: 5044
+      targetPort: 5044
+  type: ClusterIP

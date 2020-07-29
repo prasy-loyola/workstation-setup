@@ -1,0 +1,70 @@
+---
+apiVersion: apps/v1 #  for k8s versions before 1.9.0 use apps/v1beta2  and before 1.8.0 use extensions/v1beta1
+kind: Deployment
+metadata:
+  name: redis-commander
+spec:
+  selector:
+    matchLabels:
+      app: redis
+      role: ui
+      tier: frontend
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: redis
+        role: ui
+        tier: frontend
+    spec:
+      containers:
+        - name: redis-commander
+          image: rediscommander/redis-commander
+          env:
+            - name: REDIS_HOSTS
+              value: redis-internal:redis-service:6379
+          ports:
+            - name: redis-commander
+              containerPort: 8081
+          resources:
+            requests:
+              cpu: 100m
+              memory: 100Mi
+            limits:
+              cpu: 200m
+              memory: 200Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-commander-service
+spec:
+  selector:
+    app: redis
+    role: ui
+    tier: frontend
+  ports:
+    - name: redis-commander
+      protocol: TCP
+      port: 8081
+      targetPort: 8081
+
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: redis-ingress
+  labels:
+    group: redis-server
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+    - host: redis-commander.local.io
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: redis-commander-service
+              servicePort: 8081
