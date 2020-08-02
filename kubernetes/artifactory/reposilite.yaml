@@ -1,0 +1,126 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reposilite
+spec:
+  selector:
+    matchLabels:
+      app: reposilite
+  template:
+    metadata:
+      labels:
+        app: reposilite
+    spec:
+      volumes:
+        - name: reposilite-config
+          configMap:
+            name: reposilite-config
+      containers:
+        - name: reposilite
+          image: dzikoysk/reposilite:2.7.4
+          command:
+            - sh
+            - -c
+            - java -Dreposilite.hostname="$HOSTNAME" -jar reposilite.jar -wd=/app/data
+          resources:
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - mountPath: /app/data/tokens.yml
+              subPath: tokens.yml
+              name: reposilite-config
+            - mountPath: /app/data/reposilite.yml
+              subPath: reposilite.yml
+              name: reposilite-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reposilite-config
+data:
+  tokens.yml: |
+    !!org.panda_lang.reposilite.auth.TokenCollection
+    "tokens":
+    - "alias": "admin"
+      "path": "/"
+      "token": "$2a$10$MOAApIwewMSVStQTT1KnOer.ffgyfPcinDP9P7EEr.nUuKbH2U33y"
+  reposilite.yml: |
+    # ~~~~~~~~~~~~~~~~~~~~~~ #
+    #       Reposilite       #
+    # ~~~~~~~~~~~~~~~~~~~~~~ #
+
+    # Hostname
+    hostname: ""
+    # Port to bind
+    port: 80
+    # Custom base path
+    basePath: "/"
+    # Debug
+    debugEnabled: false
+
+    # List of supported Maven repositories.
+    # First directory on the list is the main (primary) repository.
+    # Tu mark repository as private, prefix its name with a dot, e.g. ".private"
+    repositories:
+      - "releases"
+      - "snapshots"
+    # Allow to omit name of the main repository in request
+    # e.g. /org/panda-lang/reposilite will be redirected to /releases/org/panda-lang/reposilite
+    rewritePathsEnabled: true
+
+    # List of proxied repositories.
+    # Reposilite will search for an artifact in remote repositories listed below, if the requested artifact was not found.
+    # Note: URL cannot contains / at the end
+    proxied: 
+      - "https://repo.panda-lang.org"
+      - "https://repo.insertt.dev"
+      - "https://jcenter.bintray.com"
+      - "https://repo.maven.apache.org/maven2"
+
+    # Accept deployment connections
+    deployEnabled: true
+    # List of management tokens used by dashboard to access extra options.
+    # (By default, people are allowed to use standard dashboard options related to the associated path)
+    managers: 
+     - admin
+
+    # Title displayed by frontend
+    title: "Prasy Repo"
+    # Description displayed by frontend
+    description: "Local repo for private jars"
+    # Accent color used by frontend
+    accentColor: "#2fd4aa"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reposilite-service
+spec:
+  selector:
+    app: reposilite
+  ports:
+    - port: 80
+      targetPort: 80
+
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: reposilite-ingress
+  labels:
+    app: reposilite-ingress
+    group: reposilite
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+    - host: reposilite.local.io
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: reposilite-service
+              servicePort: 80
