@@ -47,6 +47,8 @@ data:
     - "alias": "admin"
       "path": "/"
       "token": "$2a$10$MOAApIwewMSVStQTT1KnOer.ffgyfPcinDP9P7EEr.nUuKbH2U33y"
+      #T6En1b5DIHSeavRtL2P506x0LNkOQzvGkF525C2/sXRFVij6dRjRn7U2VjdUFW9P
+
   reposilite.yml: |
     # ~~~~~~~~~~~~~~~~~~~~~~ #
     #       Reposilite       #
